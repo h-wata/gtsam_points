@@ -91,11 +91,13 @@ public:
   int* num_points;               ///< Number of points in eac voxel
   Eigen::Vector3f* voxel_means;  ///< Voxel means
   Eigen::Matrix3f* voxel_covs;   ///< Voxel covariances
+  float* voxel_intensities;      ///< Voxel intensities
 };
 
 std::vector<VoxelBucket> download_buckets(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream = nullptr);
 std::vector<int> download_voxel_num_points(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream = nullptr);
 std::vector<Eigen::Vector3f> download_voxel_means(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream = nullptr);
 std::vector<Eigen::Matrix3f> download_voxel_covs(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream = nullptr);
+std::vector<float> download_voxel_intensities(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream = nullptr);
 
 }  // namespace gtsam_points
