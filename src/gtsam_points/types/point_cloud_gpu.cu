@@ -65,23 +65,26 @@ PointCloudGPU::PointCloudGPU() {}
 
 PointCloudGPU::~PointCloudGPU() {
   if (times_gpu) {
-    check_error << cudaFreeAsync(times_gpu, 0);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(times_gpu, 0);
   }
 
   if (points_gpu) {
-    check_error << cudaFreeAsync(points_gpu, 0);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(points_gpu, 0);
   }
 
   if (normals_gpu) {
-    check_error << cudaFreeAsync(normals_gpu, 0);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(normals_gpu, 0);
   }
 
   if (covs_gpu) {
-    check_error << cudaFreeAsync(covs_gpu, 0);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(covs_gpu, 0);
   }
 
   if (intensities_gpu) {
-    check_error << cudaFreeAsync(intensities_gpu, 0);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(intensities_gpu, 0);
+  }
+  if (colors_gpu) {
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(colors_gpu, 0);
   }
 }
 
@@ -90,15 +93,15 @@ template <typename T>
 void PointCloudGPU::add_times_gpu(const T* times, int num_points, CUstream_st* stream) {
   assert(num_points == size());
   if (times_gpu) {
-    check_error << cudaFreeAsync(times_gpu, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(times_gpu, stream);
   }
 
-  check_error << cudaMallocAsync(&times_gpu, sizeof(float) * num_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&times_gpu, sizeof(float) * num_points, stream);
   if (times) {
     std::vector<float> times_h(num_points);
     std::copy(times, times + num_points, times_h.begin());
-    check_error << cudaMemcpyAsync(times_gpu, times_h.data(), sizeof(float) * num_points, cudaMemcpyHostToDevice, stream);
-    check_error << cudaStreamSynchronize(stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(times_gpu, times_h.data(), sizeof(float) * num_points, cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
   }
 }
 
@@ -110,17 +113,18 @@ template <typename T, int D>
 void PointCloudGPU::add_points_gpu(const Eigen::Matrix<T, D, 1>* points, int num_points, CUstream_st* stream) {
   this->num_points = num_points;
   if (points_gpu) {
-    check_error << cudaFreeAsync(points_gpu, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(points_gpu, stream);
   }
 
-  check_error << cudaMallocAsync(&points_gpu, sizeof(Eigen::Vector3f) * num_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&points_gpu, sizeof(Eigen::Vector3f) * num_points, stream);
   if (points) {
     std::vector<Eigen::Vector3f> points_h(num_points);
     for (int i = 0; i < num_points; i++) {
       points_h[i] = points[i].template cast<float>().template head<3>();
     }
-    check_error << cudaMemcpyAsync(points_gpu, points_h.data(), sizeof(Eigen::Vector3f) * num_points, cudaMemcpyHostToDevice, stream);
-    check_error << cudaStreamSynchronize(stream);
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(points_gpu, points_h.data(), sizeof(Eigen::Vector3f) * num_points, cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
   }
 }
 
@@ -135,17 +139,18 @@ void PointCloudGPU::add_normals_gpu(const Eigen::Matrix<T, D, 1>* normals, int n
   assert(num_points == this->size());
 
   if (normals_gpu) {
-    check_error << cudaFreeAsync(normals_gpu, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(normals_gpu, stream);
   }
 
-  check_error << cudaMallocAsync(&normals_gpu, sizeof(Eigen::Vector3f) * num_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&normals_gpu, sizeof(Eigen::Vector3f) * num_points, stream);
   if (normals) {
     std::vector<Eigen::Vector3f> normals_h(num_points);
     for (int i = 0; i < num_points; i++) {
       normals_h[i] = normals[i].template head<3>().template cast<float>();
     }
-    check_error << cudaMemcpyAsync(normals_gpu, normals_h.data(), sizeof(Eigen::Vector3f) * num_points, cudaMemcpyHostToDevice, stream);
-    check_error << cudaStreamSynchronize(stream);
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(normals_gpu, normals_h.data(), sizeof(Eigen::Vector3f) * num_points, cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
   }
 }
 
@@ -160,17 +165,18 @@ void PointCloudGPU::add_covs_gpu(const Eigen::Matrix<T, D, D>* covs, int num_poi
   assert(num_points == size());
 
   if (covs_gpu) {
-    check_error << cudaFreeAsync(covs_gpu, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(covs_gpu, stream);
   }
 
-  check_error << cudaMallocAsync(&covs_gpu, sizeof(Eigen::Matrix3f) * num_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&covs_gpu, sizeof(Eigen::Matrix3f) * num_points, stream);
   if (covs) {
     std::vector<Eigen::Matrix3f> covs_h(num_points);
     for (int i = 0; i < num_points; i++) {
       covs_h[i] = covs[i].template cast<float>().template block<3, 3>(0, 0);
     }
-    check_error << cudaMemcpyAsync(covs_gpu, covs_h.data(), sizeof(Eigen::Matrix3f) * num_points, cudaMemcpyHostToDevice, stream);
-    check_error << cudaStreamSynchronize(stream);
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(covs_gpu, covs_h.data(), sizeof(Eigen::Matrix3f) * num_points, cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
   }
 }
 
@@ -185,15 +191,16 @@ void PointCloudGPU::add_intensities_gpu(const T* intensities, int num_points, CU
   assert(num_points == size());
 
   if (intensities_gpu) {
-    check_error << cudaFreeAsync(intensities_gpu, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(intensities_gpu, stream);
   }
 
-  check_error << cudaMallocAsync(&intensities_gpu, sizeof(float) * num_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&intensities_gpu, sizeof(float) * num_points, stream);
   if (intensities) {
     std::vector<float> intensities_h(num_points);
     std::copy(intensities, intensities + num_points, intensities_h.begin());
-    check_error << cudaMemcpyAsync(intensities_gpu, intensities_h.data(), sizeof(float) * num_points, cudaMemcpyHostToDevice, stream);
-    check_error << cudaStreamSynchronize(stream);
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(intensities_gpu, intensities_h.data(), sizeof(float) * num_points, cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
   }
 }
 
@@ -207,7 +214,8 @@ void PointCloudGPU::download_points(CUstream_st* stream) {
   }
 
   std::vector<Eigen::Vector3f> points_h(num_points);
-  check_error << cudaMemcpyAsync(points_h.data(), points_gpu, sizeof(Eigen::Vector3f) * num_points, cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(points_h.data(), points_gpu, sizeof(Eigen::Vector3f) * num_points, cudaMemcpyDeviceToHost, stream);
 
   if (!points) {
     points_storage.resize(num_points);
@@ -224,7 +232,8 @@ std::vector<Eigen::Vector3f> download_points_gpu(const gtsam_points::PointCloud&
   }
 
   std::vector<Eigen::Vector3f> points(frame.size());
-  check_error << cudaMemcpyAsync(points.data(), frame.points_gpu, sizeof(Eigen::Vector3f) * frame.size(), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(points.data(), frame.points_gpu, sizeof(Eigen::Vector3f) * frame.size(), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
   return points;
 }
@@ -236,7 +245,8 @@ std::vector<Eigen::Matrix3f> download_covs_gpu(const gtsam_points::PointCloud& f
   }
 
   std::vector<Eigen::Matrix3f> covs(frame.size());
-  check_error << cudaMemcpyAsync(covs.data(), frame.covs_gpu, sizeof(Eigen::Matrix3f) * frame.size(), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(covs.data(), frame.covs_gpu, sizeof(Eigen::Matrix3f) * frame.size(), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
   return covs;
 }
@@ -248,7 +258,8 @@ std::vector<Eigen::Vector3f> download_normals_gpu(const gtsam_points::PointCloud
   }
 
   std::vector<Eigen::Vector3f> normals(frame.size());
-  check_error << cudaMemcpyAsync(normals.data(), frame.normals_gpu, sizeof(Eigen::Vector3f) * frame.size(), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(normals.data(), frame.normals_gpu, sizeof(Eigen::Vector3f) * frame.size(), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
   return normals;
 }
@@ -260,7 +271,8 @@ std::vector<float> download_intensities_gpu(const gtsam_points::PointCloud& fram
   }
 
   std::vector<float> intensities(frame.size());
-  check_error << cudaMemcpyAsync(intensities.data(), frame.intensities_gpu, sizeof(float) * frame.size(), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(intensities.data(), frame.intensities_gpu, sizeof(float) * frame.size(), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
   return intensities;
 }
@@ -272,7 +284,7 @@ std::vector<float> download_times_gpu(const gtsam_points::PointCloud& frame, CUs
   }
 
   std::vector<float> times(frame.size());
-  check_error << cudaMemcpyAsync(times.data(), frame.times_gpu, sizeof(float) * frame.size(), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(times.data(), frame.times_gpu, sizeof(float) * frame.size(), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
   return times;
 }

@@ -6,15 +6,12 @@
 namespace gtsam_points {
 
 void CUDACheckError::operator<<(cudaError_t error) const {
-  if (error == cudaSuccess) {
-    return;
+  if (error == cudaSuccess) return;
+  std::cerr << "warning: " << cudaGetErrorName(error) << "\n"
+            << "         : " << cudaGetErrorString(error) << "\n";
+  if (file_) {
+    std::cerr << "  (from " << file_ << ":" << line_ << ")\n";
   }
-
-  const std::string error_name = cudaGetErrorName(error);
-  const std::string error_string = cudaGetErrorString(error);
-
-  std::cerr << "warning: " << error_name << std::endl;
-  std::cerr << "       : " << error_string << std::endl;
 }
 
 CUDACheckError check_error;
