@@ -172,6 +172,9 @@ void PointCloud::save(const std::string& path) const {
   if (intensities) {
     write_binary(path + "/intensities.bin", intensities, sizeof(double) * num_points);
   }
+  if (colors) {
+    write_binary(path + "/colors.bin", colors, sizeof(Eigen::Vector4d) * num_points);
+  }
 
   for (const auto& attrib : aux_attributes) {
     const auto& name = attrib.first;
@@ -211,9 +214,16 @@ void PointCloud::save_compact(const std::string& path) const {
   }
 
   if (intensities) {
+    std::cout << "intensities" << std::endl;
     std::vector<float> intensities_f(num_points);
     std::copy(intensities, intensities + num_points, intensities_f.begin());
     write_binary(path + "/intensities_compact.bin", intensities_f.data(), sizeof(float) * num_points);
+  }
+  if (colors) {
+    std::cout << "colors" << std::endl;
+    std::vector<Eigen::Vector4f> colors_f(num_points);
+    std::transform(colors, colors + num_points, colors_f.begin(), [](const Eigen::Vector4d& c) { return c.cast<float>(); });
+    write_binary(path + "/colors_compact.bin", colors_f.data(), sizeof(Eigen::Vector4f) * num_points);
   }
 
   for (const auto& attrib : aux_attributes) {

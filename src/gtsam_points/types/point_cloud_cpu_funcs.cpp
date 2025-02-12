@@ -55,6 +55,12 @@ PointCloudCPU::Ptr sample(const PointCloud::ConstPtr& frame, const std::vector<i
     std::transform(indices.begin(), indices.end(), sampled->intensities, [&](const int i) { return frame->intensities[i]; });
   }
 
+  if (frame->colors) {
+    sampled->colors_storage.resize(indices.size());
+    sampled->colors = sampled->colors_storage.data();
+    std::transform(indices.begin(), indices.end(), sampled->colors, [&](const int i) { return frame->colors[i]; });
+  }
+  
   for (const auto& attrib : frame->aux_attributes) {
     const auto& name = attrib.first;
     const size_t elem_size = attrib.second.first;
@@ -184,7 +190,9 @@ PointCloudCPU::Ptr voxelgrid_sampling(const PointCloud::ConstPtr& frame, const d
   if (frame->intensities) {
     downsampled->intensities_storage.resize(frame->size());
   }
-
+  if (frame->colors) {
+    downsampled->colors_storage.resize(frame->size());
+  }
   const int block_size = 1024;
   std::atomic_uint64_t num_points = 0;
 
@@ -241,6 +249,13 @@ PointCloudCPU::Ptr voxelgrid_sampling(const PointCloud::ConstPtr& frame, const d
         }
         downsampled->intensities_storage[point_index_begin + i] = intensity_average.average();
       }
+      if (frame->colors) {
+        Averager<Eigen::Vector4d> color_average(Eigen::Vector4d::Zero());
+        for (auto pt = sub_blocks[i]; pt != sub_blocks[i + 1]; pt++) {
+          color_average += frame->colors[pt->second];
+        }
+        downsampled->colors_storage[point_index_begin + i] = color_average.average();
+      }
     }
   };
 
@@ -285,6 +300,11 @@ PointCloudCPU::Ptr voxelgrid_sampling(const PointCloud::ConstPtr& frame, const d
   if (frame->intensities) {
     downsampled->intensities_storage.resize(num_points);
     downsampled->intensities = downsampled->intensities_storage.data();
+  }
+  
+  if (frame->colors) {
+    downsampled->colors_storage.resize(num_points);
+    downsampled->colors = downsampled->colors_storage.data();
   }
 
   if (!frame->aux_attributes.empty()) {
@@ -484,6 +504,11 @@ PointCloudCPU::Ptr transform(const PointCloud::ConstPtr& frame, const Eigen::Tra
     }
   }
 
+  if (frame->colors) {
+    for (int i = 0; i < frame->size(); i++) {
+      transformed->colors[i] = frame->colors[i];
+    }
+  }
   return transformed;
 }
 
@@ -537,6 +562,11 @@ void transform_inplace(PointCloud& frame, const Eigen::Transform<double, 3, Eige
   if (frame.covs) {
     for (int i = 0; i < frame.size(); i++) {
       frame.covs[i] = transformation.matrix() * frame.covs[i] * transformation.matrix().transpose();
+    }
+  }
+  if (frame.colors) {
+    for (int i = 0; i < frame.size(); i++) {
+      frame.colors[i] = frame.colors[i];
     }
   }
 }

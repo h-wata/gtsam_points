@@ -207,6 +207,37 @@ void PointCloudGPU::add_intensities_gpu(const T* intensities, int num_points, CU
 template void PointCloudGPU::add_intensities_gpu(const float* intensities, int num_points, CUstream_st* stream);
 template void PointCloudGPU::add_intensities_gpu(const double* intensities, int num_points, CUstream_st* stream);
 
+template <typename T, int D>
+void PointCloudGPU::add_colors_gpu(const Eigen::Matrix<T, D, 1>* colors, int num_points, CUstream_st* stream) {
+  assert(num_points == size());
+  if (colors_gpu) {
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(colors_gpu, stream);
+  }
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&colors_gpu, sizeof(Eigen::Vector4f) * num_points, stream);
+  if (colors) {
+    std::vector<Eigen::Vector4f> colors_h(num_points);
+    for (int i = 0; i < num_points; i++) {
+      Eigen::Matrix<T, 4, 1> tmp;
+      if constexpr (D == 3) {
+        tmp << colors[i](0), colors[i](1), colors[i](2), T(1.0);
+      } else if constexpr (D == 4) {
+        tmp = colors[i];
+      } else {
+        static_assert(D == 3 || D == 4, "colors must be 3D or 4D");
+      }
+      colors_h[i] = tmp.template cast<float>();
+    }
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(colors_gpu, colors_h.data(), sizeof(Eigen::Vector4f) * num_points, cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
+  }
+}
+
+template void PointCloudGPU::add_colors_gpu(const Eigen::Matrix<float, 3, 1>* colors, int num_points, CUstream_st* stream);
+template void PointCloudGPU::add_colors_gpu(const Eigen::Matrix<float, 4, 1>* colors, int num_points, CUstream_st* stream);
+template void PointCloudGPU::add_colors_gpu(const Eigen::Matrix<double, 3, 1>* colors, int num_points, CUstream_st* stream);
+template void PointCloudGPU::add_colors_gpu(const Eigen::Matrix<double, 4, 1>* colors, int num_points, CUstream_st* stream);
+
 void PointCloudGPU::download_points(CUstream_st* stream) {
   if (!points_gpu) {
     std::cerr << "error: frame does not have points on GPU!!" << std::endl;
@@ -275,6 +306,18 @@ std::vector<float> download_intensities_gpu(const gtsam_points::PointCloud& fram
     << cudaMemcpyAsync(intensities.data(), frame.intensities_gpu, sizeof(float) * frame.size(), cudaMemcpyDeviceToHost, stream);
   cudaStreamSynchronize(stream);
   return intensities;
+}
+
+std::vector<Eigen::Vector3f> download_colors_gpu(const gtsam_points::PointCloud& frame, CUstream_st* stream) {
+  if (!frame.colors_gpu) {
+    std::cerr << "error: frame does not have colors on GPU!!" << std::endl;
+    return {};
+  }
+  std::vector<Eigen::Vector3f> colors(frame.size());
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(colors.data(), frame.colors_gpu, sizeof(Eigen::Vector4f) * frame.size(), cudaMemcpyDeviceToHost, stream);
+  cudaStreamSynchronize(stream);
+  return colors;
 }
 
 std::vector<float> download_times_gpu(const gtsam_points::PointCloud& frame, CUstream_st* stream) {
