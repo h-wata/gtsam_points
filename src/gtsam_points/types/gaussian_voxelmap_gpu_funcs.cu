@@ -43,11 +43,14 @@ struct transform_covs_kernel {
 }  // namespace
 
 PointCloud::Ptr merge_frames_gpu(
+
   const std::vector<Eigen::Isometry3d>& poses,
   const std::vector<PointCloud::ConstPtr>& frames,
   double downsample_resolution,
   CUstream_st* stream) {
   //
+  bool has_color = false;
+  bool has_intensity = false;
   int num_all_points = 0;
   std::vector<Eigen::Isometry3f> h_poses(poses.size());
   for (int i = 0; i < poses.size(); i++) {
@@ -63,6 +66,7 @@ PointCloud::Ptr merge_frames_gpu(
   Eigen::Vector3f* all_points;
   Eigen::Matrix3f* all_covs;
   float* all_intensities;
+  Eigen::Vector4f* all_colors;
   CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_points, sizeof(Eigen::Vector3f) * num_all_points, stream);
   CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_covs, sizeof(Eigen::Matrix3f) * num_all_points, stream);
   CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_intensities, sizeof(float) * num_all_points, stream);
@@ -70,6 +74,8 @@ PointCloud::Ptr merge_frames_gpu(
 
   const thrust::device_ptr<Eigen::Vector3f> all_points_ptr(all_points);
   const thrust::device_ptr<Eigen::Matrix3f> all_covs_ptr(all_covs);
+  const thrust::device_ptr<float> all_intensities_ptr(all_intensities);
+  const thrust::device_ptr<Eigen::Vector4f> all_colors_ptr(all_colors);
 
   size_t begin = 0;
   for (int i = 0; i < frames.size(); i++) {
@@ -78,7 +84,9 @@ PointCloud::Ptr merge_frames_gpu(
     const thrust::device_ptr<const Eigen::Vector3f> points_ptr(frame->points_gpu);
     const thrust::device_ptr<const Eigen::Matrix3f> covs_ptr(frame->covs_gpu);
     const thrust::device_ptr<const float> intensities_ptr(frame->intensities_gpu);
-
+    const thrust::device_ptr<const Eigen::Vector4f> colors_ptr(frame->colors_gpu);
+    has_intensity = frame->has_intensities_gpu();
+    has_color = frame->has_colors_gpu();
     thrust::transform(
       thrust::cuda::par_nosync.on(stream),
       points_ptr,
@@ -86,17 +94,37 @@ PointCloud::Ptr merge_frames_gpu(
       all_points_ptr + begin,
       transform_means_kernel(transform_ptr));
     thrust::transform(thrust::cuda::par.on(stream), covs_ptr, covs_ptr + frame->size(), all_covs_ptr + begin, transform_covs_kernel(transform_ptr));
-    thrust::copy_n(intensities_ptr, frame->size(), all_intensities + begin);
+    if (has_intensity) {
+      thrust::copy_n(intensities_ptr, frame->size(), all_intensities + begin);
+    }
+    if (has_color) {
+      CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(
+        all_colors + begin,
+        thrust::raw_pointer_cast(colors_ptr),
+        sizeof(Eigen::Vector4f) * frame->size(),
+        cudaMemcpyDeviceToDevice,
+        stream);
+    }
     begin += frame->size();
   }
 
   CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
-
+  if (all_intensities == nullptr) {
+    has_intensity = false;
+  }
+  if (all_colors == nullptr) {
+    has_color = false;
+  }
   PointCloud all_frames;
   all_frames.num_points = num_all_points;
   all_frames.points_gpu = all_points;
   all_frames.covs_gpu = all_covs;
-  all_frames.intensities_gpu = all_intensities;
+  if (has_intensity) {
+    all_frames.intensities_gpu = all_intensities;
+  }
+  if (has_color) {
+    all_frames.colors_gpu = all_colors;
+  }
 
   GaussianVoxelMapGPU downsampling(downsample_resolution, num_all_points, 10, 1e-3, stream);
   downsampling.insert(all_frames);
@@ -105,32 +133,46 @@ PointCloud::Ptr merge_frames_gpu(
   const Eigen::Vector3f* voxel_means = downsampling.voxel_means;
   const Eigen::Matrix3f* voxel_covs = downsampling.voxel_covs;
   const float* voxel_intensities = downsampling.voxel_intensities;
+  const Eigen::Vector4f* voxel_colors = downsampling.voxel_colors;
 
   std::vector<Eigen::Vector3f> means(num_voxels);
   std::vector<Eigen::Matrix3f> covs(num_voxels);
   std::vector<float> intensities(num_voxels);
+  std::vector<Eigen::Vector4f> colors(num_voxels);
 
   CUDACheckError(__FILE__, __LINE__)
     << cudaMemcpyAsync(means.data(), voxel_means, sizeof(Eigen::Vector3f) * num_voxels, cudaMemcpyDeviceToHost, stream);
   CUDACheckError(__FILE__, __LINE__)
     << cudaMemcpyAsync(covs.data(), voxel_covs, sizeof(Eigen::Matrix3f) * num_voxels, cudaMemcpyDeviceToHost, stream);
-  CUDACheckError(__FILE__, __LINE__)
-    << cudaMemcpyAsync(intensities.data(), voxel_intensities, sizeof(float) * num_voxels, cudaMemcpyDeviceToHost, stream);
-  CUDACheckError(__FILE__, __LINE__)
-    << cudaMemcpyAsync(colors.data(), voxel_colors, sizeof(Eigen::Vector4f) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  if (has_intensity) {
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(intensities.data(), voxel_intensities, sizeof(float) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  }
+  if (has_color) {
+    CUDACheckError(__FILE__, __LINE__)
+      << cudaMemcpyAsync(colors.data(), voxel_colors, sizeof(Eigen::Vector4f) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  }
   CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 
   CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(d_poses, stream);
   CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_points, stream);
   CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_covs, stream);
-  if (all_intensities != nullptr) {
+  if (has_intensity) {
     CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_intensities, stream);
+  }
+  if (has_color) {
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_colors, stream);
   }
 
   auto merged = std::make_shared<PointCloudGPU>();
   merged->add_points(means, stream);
   merged->add_covs(covs, stream);
-  merged->add_intensities(intensities, stream);
+  if (has_intensity) {
+    merged->add_intensities(intensities, stream);
+  }
+  if (has_color) {
+    merged->add_colors(colors, stream);
+  }
 
   return merged;
 }

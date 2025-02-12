@@ -112,8 +112,26 @@ struct accumulate_points_kernel {
     const auto& cov = thrust::get<1>(input);
 
     float intensity = 0.0f;
+    Eigen::Vector4f point_color = Eigen::Vector4f::Zero();
+
+    // TODO: Write simpler code
     if constexpr (thrust::tuple_size<TupleType>::value == 3) {
-      intensity = thrust::get<2>(input);
+      if constexpr (std::is_same_v<std::remove_reference_t<decltype(thrust::get<2>(input))>, float>) {
+        intensity = thrust::get<2>(input);
+      } else if constexpr (std::is_same_v<std::remove_reference_t<decltype(thrust::get<2>(input))>, Eigen::Vector4f>) {
+        point_color = thrust::get<2>(input);
+      }
+    } else if constexpr (thrust::tuple_size<TupleType>::value == 4) {
+      if constexpr (std::is_same_v<std::remove_reference_t<decltype(thrust::get<2>(input))>, float>) {
+        intensity = thrust::get<2>(input);
+        if constexpr (std::is_same_v<std::remove_reference_t<decltype(thrust::get<3>(input))>, Eigen::Vector4f>) {
+          point_color = thrust::get<3>(input);
+        } else if constexpr (std::is_same_v<std::remove_reference_t<decltype(thrust::get<3>(input))>, float>) {
+        }
+      } else if constexpr (std::is_same_v<std::remove_reference_t<decltype(thrust::get<2>(input))>, Eigen::Vector4f>) {
+        point_color = thrust::get<2>(input);
+        intensity = thrust::get<3>(input);
+      }
     }
 
     const Eigen::Vector3i coord = calc_voxel_coord(mean, info.voxel_resolution);
@@ -144,6 +162,13 @@ struct accumulate_points_kernel {
         if (voxel_intensities_ptr) {
           atomicAdd(&thrust::raw_pointer_cast(voxel_intensities_ptr)[bucket.second], intensity);
         }
+        if (voxel_colors_ptr) {
+          Eigen::Vector4f* voxel_color_ptr = thrust::raw_pointer_cast(voxel_colors_ptr) + bucket.second;
+          float* color_data = voxel_color_ptr->data();
+          for (int j = 0; j < 4; ++j) {
+            atomicAdd(&(color_data[j]), point_color[j]);
+          }
+        }
       }
     }
   }
@@ -155,6 +180,44 @@ struct accumulate_points_kernel {
   thrust::device_ptr<Eigen::Vector3f> voxel_means_ptr;
   thrust::device_ptr<Eigen::Matrix3f> voxel_covs_ptr;
   thrust::device_ptr<float> voxel_intensities_ptr;
+  thrust::device_ptr<Eigen::Vector4f> voxel_colors_ptr;
+};
+
+struct finalize_voxels_kernel_with_color {
+  finalize_voxels_kernel_with_color(
+    int* num_points,
+    Eigen::Vector3f* voxel_means,
+    Eigen::Matrix3f* voxel_covs,
+    float* voxel_intensities = nullptr,
+    Eigen::Vector4f* voxel_colors = nullptr)
+  : num_points_ptr(num_points),
+    voxel_means_ptr(voxel_means),
+    voxel_covs_ptr(voxel_covs),
+    voxel_intensities_ptr(voxel_intensities),
+    voxel_colors_ptr(voxel_colors) {}
+
+  __host__ __device__ void operator()(int i) const {
+    int num_pts = thrust::raw_pointer_cast(num_points_ptr)[i];
+    auto& voxel_mean = thrust::raw_pointer_cast(voxel_means_ptr)[i];
+    auto& voxel_cov = thrust::raw_pointer_cast(voxel_covs_ptr)[i];
+    auto& voxel_intensity = thrust::raw_pointer_cast(voxel_intensities_ptr)[i];
+    auto& voxel_color = thrust::raw_pointer_cast(voxel_colors_ptr)[i];
+
+    voxel_mean /= num_pts;
+    voxel_cov /= num_pts;
+    if (voxel_intensities_ptr) {
+      voxel_intensity /= num_pts;
+    }
+    if (voxel_colors_ptr) {
+      voxel_color /= num_pts;
+    }
+  }
+
+  thrust::device_ptr<int> num_points_ptr;
+  thrust::device_ptr<Eigen::Vector3f> voxel_means_ptr;
+  thrust::device_ptr<Eigen::Matrix3f> voxel_covs_ptr;
+  thrust::device_ptr<float> voxel_intensities_ptr;
+  thrust::device_ptr<Eigen::Vector4f> voxel_colors_ptr;
 };
 
 struct finalize_voxels_kernel {
@@ -206,6 +269,8 @@ GaussianVoxelMapGPU::GaussianVoxelMapGPU(
   num_points = nullptr;
   voxel_means = nullptr;
   voxel_covs = nullptr;
+  voxel_intensities = nullptr;
+  voxel_colors = nullptr;
 }
 
 GaussianVoxelMapGPU::~GaussianVoxelMapGPU() {
@@ -217,6 +282,9 @@ GaussianVoxelMapGPU::~GaussianVoxelMapGPU() {
   if (voxel_intensities != nullptr) {
     CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxel_intensities, 0);
   }
+  if (voxel_colors != nullptr) {
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxel_colors, 0);
+  }
 }
 
 void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
@@ -226,6 +294,7 @@ void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
   }
 
   bool has_intensities = frame.has_intensities_gpu();
+  bool has_colors = frame.has_colors_gpu();
   create_bucket_table(stream, frame);
 
   CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&num_points, sizeof(int) * voxelmap_info.num_voxels, stream);
@@ -247,26 +316,55 @@ void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
   thrust::device_ptr<Eigen::Vector3f> points_ptr(frame.points_gpu);
   thrust::device_ptr<Eigen::Matrix3f> covs_ptr(frame.covs_gpu);
   thrust::device_ptr<float> intensities_ptr = has_intensities ? thrust::device_ptr<float>(frame.intensities_gpu) : nullptr;
+  thrust::device_ptr<Eigen::Vector4f> colors_ptr = has_colors ? thrust::device_ptr<Eigen::Vector4f>(frame.colors_gpu) : nullptr;
 
-  if (has_intensities) {
+  // TODO: Write simpler code
+  if (has_intensities && has_colors) {
+    thrust::for_each(
+      thrust::cuda::par_nosync.on(stream),
+      thrust::make_zip_iterator(thrust::make_tuple(points_ptr, covs_ptr, intensities_ptr, colors_ptr)),
+      thrust::make_zip_iterator(
+        thrust::make_tuple(points_ptr + frame.size(), covs_ptr + frame.size(), intensities_ptr + frame.size(), colors_ptr + frame.size())),
+      accumulate_points_kernel(voxelmap_info_ptr, buckets, num_points, voxel_means, voxel_covs, voxel_intensities, voxel_colors));
+    thrust::for_each(
+      thrust::cuda::par_nosync.on(stream),
+      thrust::counting_iterator<int>(0),
+      thrust::counting_iterator<int>(voxelmap_info.num_voxels),
+      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, voxel_intensities, voxel_colors));
+  } else if (has_intensities) {
     thrust::for_each(
       thrust::cuda::par_nosync.on(stream),
       thrust::make_zip_iterator(thrust::make_tuple(points_ptr, covs_ptr, intensities_ptr)),
       thrust::make_zip_iterator(thrust::make_tuple(points_ptr + frame.size(), covs_ptr + frame.size(), intensities_ptr + frame.size())),
-      accumulate_points_kernel(voxelmap_info_ptr, buckets, num_points, voxel_means, voxel_covs, voxel_intensities));
+      accumulate_points_kernel(voxelmap_info_ptr, buckets, num_points, voxel_means, voxel_covs, voxel_intensities, nullptr));
+    thrust::for_each(
+      thrust::cuda::par_nosync.on(stream),
+      thrust::counting_iterator<int>(0),
+      thrust::counting_iterator<int>(voxelmap_info.num_voxels),
+      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, voxel_intensities, nullptr));
+  } else if (has_colors) {
+    thrust::for_each(
+      thrust::cuda::par_nosync.on(stream),
+      thrust::make_zip_iterator(thrust::make_tuple(points_ptr, covs_ptr, colors_ptr)),
+      thrust::make_zip_iterator(thrust::make_tuple(points_ptr + frame.size(), covs_ptr + frame.size(), colors_ptr + frame.size())),
+      accumulate_points_kernel(voxelmap_info_ptr, buckets, num_points, voxel_means, voxel_covs, nullptr, voxel_colors));
+    thrust::for_each(
+      thrust::cuda::par_nosync.on(stream),
+      thrust::counting_iterator<int>(0),
+      thrust::counting_iterator<int>(voxelmap_info.num_voxels),
+      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, nullptr, voxel_colors));
   } else {
     thrust::for_each(
       thrust::cuda::par_nosync.on(stream),
       thrust::make_zip_iterator(thrust::make_tuple(points_ptr, covs_ptr)),
       thrust::make_zip_iterator(thrust::make_tuple(points_ptr + frame.size(), covs_ptr + frame.size())),
-      accumulate_points_kernel(voxelmap_info_ptr, buckets, num_points, voxel_means, voxel_covs));
+      accumulate_points_kernel(voxelmap_info_ptr, buckets, num_points, voxel_means, voxel_covs, nullptr, nullptr));
+    thrust::for_each(
+      thrust::cuda::par_nosync.on(stream),
+      thrust::counting_iterator<int>(0),
+      thrust::counting_iterator<int>(voxelmap_info.num_voxels),
+      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, nullptr, nullptr));
   }
-
-  thrust::for_each(
-    thrust::cuda::par_nosync.on(stream),
-    thrust::counting_iterator<int>(0),
-    thrust::counting_iterator<int>(voxelmap_info.num_voxels),
-    finalize_voxels_kernel(num_points, voxel_means, voxel_covs, voxel_intensities));
 
   CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 }
