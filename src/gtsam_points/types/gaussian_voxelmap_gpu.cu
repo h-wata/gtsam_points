@@ -197,8 +197,8 @@ GaussianVoxelMapGPU::GaussianVoxelMapGPU(
   voxelmap_info.max_bucket_scan_count = max_bucket_scan_count;
   voxelmap_info.voxel_resolution = resolution;
 
-  check_error << cudaMallocAsync(&voxelmap_info_ptr, sizeof(VoxelMapInfo), stream);
-  check_error << cudaMemcpyAsync(voxelmap_info_ptr, &voxelmap_info, sizeof(VoxelMapInfo), cudaMemcpyHostToDevice, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&voxelmap_info_ptr, sizeof(VoxelMapInfo), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(voxelmap_info_ptr, &voxelmap_info, sizeof(VoxelMapInfo), cudaMemcpyHostToDevice, stream);
 
   buckets = nullptr;
   num_points = nullptr;
@@ -207,13 +207,13 @@ GaussianVoxelMapGPU::GaussianVoxelMapGPU(
 }
 
 GaussianVoxelMapGPU::~GaussianVoxelMapGPU() {
-  check_error << cudaFreeAsync(voxelmap_info_ptr, 0);
-  check_error << cudaFreeAsync(buckets, 0);
-  check_error << cudaFreeAsync(num_points, 0);
-  check_error << cudaFreeAsync(voxel_means, 0);
-  check_error << cudaFreeAsync(voxel_covs, 0);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxelmap_info_ptr, 0);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(buckets, 0);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(num_points, 0);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxel_means, 0);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxel_covs, 0);
   if (voxel_intensities != nullptr) {
-    check_error << cudaFreeAsync(voxel_intensities, 0);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxel_intensities, 0);
   }
 }
 
@@ -226,17 +226,21 @@ void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
   bool has_intensities = frame.has_intensities_gpu();
   create_bucket_table(stream, frame);
 
-  check_error << cudaMallocAsync(&num_points, sizeof(int) * voxelmap_info.num_voxels, stream);
-  check_error << cudaMallocAsync(&voxel_means, sizeof(Eigen::Vector3f) * voxelmap_info.num_voxels, stream);
-  check_error << cudaMallocAsync(&voxel_covs, sizeof(Eigen::Matrix3f) * voxelmap_info.num_voxels, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&num_points, sizeof(int) * voxelmap_info.num_voxels, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&voxel_means, sizeof(Eigen::Vector3f) * voxelmap_info.num_voxels, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&voxel_covs, sizeof(Eigen::Matrix3f) * voxelmap_info.num_voxels, stream);
 
   if (has_intensities) {
-    check_error << cudaMallocAsync(&voxel_intensities, sizeof(float) * voxelmap_info.num_voxels, stream);
-    check_error << cudaMemsetAsync(voxel_intensities, 0, sizeof(float) * voxelmap_info.num_voxels, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&voxel_intensities, sizeof(float) * voxelmap_info.num_voxels, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(voxel_intensities, 0, sizeof(float) * voxelmap_info.num_voxels, stream);
   }
-  check_error << cudaMemsetAsync(num_points, 0, sizeof(int) * voxelmap_info.num_voxels, stream);
-  check_error << cudaMemsetAsync(voxel_means, 0, sizeof(Eigen::Vector3f) * voxelmap_info.num_voxels, stream);
-  check_error << cudaMemsetAsync(voxel_covs, 0, sizeof(Eigen::Matrix3f) * voxelmap_info.num_voxels, stream);
+  if (has_colors) {
+    CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&voxel_colors, sizeof(Eigen::Vector4f) * voxelmap_info.num_voxels, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(voxel_colors, 0, sizeof(Eigen::Vector4f) * voxelmap_info.num_voxels, stream);
+  }
+  CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(num_points, 0, sizeof(int) * voxelmap_info.num_voxels, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(voxel_means, 0, sizeof(Eigen::Vector3f) * voxelmap_info.num_voxels, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(voxel_covs, 0, sizeof(Eigen::Matrix3f) * voxelmap_info.num_voxels, stream);
 
   thrust::device_ptr<Eigen::Vector3f> points_ptr(frame.points_gpu);
   thrust::device_ptr<Eigen::Matrix3f> covs_ptr(frame.covs_gpu);
@@ -262,13 +266,13 @@ void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
     thrust::counting_iterator<int>(voxelmap_info.num_voxels),
     finalize_voxels_kernel(num_points, voxel_means, voxel_covs, voxel_intensities));
 
-  cudaStreamSynchronize(stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 }
 
 void GaussianVoxelMapGPU::create_bucket_table(cudaStream_t stream, const PointCloud& frame) {
   // transform points(Vector3f) to voxel coords(Vector3i)
   Eigen::Vector3i* coords;
-  check_error << cudaMallocAsync(&coords, sizeof(Eigen::Vector3i) * frame.size(), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&coords, sizeof(Eigen::Vector3i) * frame.size(), stream);
   thrust::transform(
     thrust::cuda::par_nosync.on(stream),
     thrust::device_ptr<Eigen::Vector3f>(frame.points_gpu),
@@ -278,17 +282,16 @@ void GaussianVoxelMapGPU::create_bucket_table(cudaStream_t stream, const PointCl
 
   thrust::pair<int, int>* index_buckets = nullptr;
   int* voxels_failures;
-  check_error << cudaMallocAsync(&voxels_failures, sizeof(int) * 2, stream);
-  check_error << cudaMemsetAsync(voxels_failures, 0, sizeof(int) * 2, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&voxels_failures, sizeof(int) * 2, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(voxels_failures, 0, sizeof(int) * 2, stream);
 
   for (int num_buckets = init_num_buckets; init_num_buckets * 4; num_buckets *= 2) {
     voxelmap_info.num_buckets = num_buckets;
-    check_error << cudaMemcpyAsync(voxelmap_info_ptr, &voxelmap_info, sizeof(VoxelMapInfo), cudaMemcpyHostToDevice, stream);
-
-    check_error << cudaFreeAsync(index_buckets, stream);
-    check_error << cudaMallocAsync(&index_buckets, sizeof(thrust::pair<int, int>) * num_buckets, stream);
-    check_error << cudaMemsetAsync(index_buckets, -1, sizeof(thrust::pair<int, int>) * num_buckets, stream);
-    check_error << cudaMemsetAsync(voxels_failures, 0, sizeof(int) * 2, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(voxelmap_info_ptr, &voxelmap_info, sizeof(VoxelMapInfo), cudaMemcpyHostToDevice, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(index_buckets, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&index_buckets, sizeof(thrust::pair<int, int>) * num_buckets, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(index_buckets, -1, sizeof(thrust::pair<int, int>) * num_buckets, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(voxels_failures, 0, sizeof(int) * 2, stream);
 
     thrust::for_each(
       thrust::cuda::par_nosync.on(stream),
@@ -297,18 +300,18 @@ void GaussianVoxelMapGPU::create_bucket_table(cudaStream_t stream, const PointCl
       voxel_bucket_assignment_kernel(voxelmap_info_ptr, coords, index_buckets, voxels_failures));
 
     std::array<int, 2> h_voxels_failures;
-    check_error << cudaMemcpyAsync(h_voxels_failures.data(), voxels_failures, sizeof(int) * 2, cudaMemcpyDeviceToHost, stream);
-    check_error << cudaStreamSynchronize(stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(h_voxels_failures.data(), voxels_failures, sizeof(int) * 2, cudaMemcpyDeviceToHost, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 
     if (h_voxels_failures[1] == 0 || static_cast<double>(h_voxels_failures[1]) / frame.size() <= target_points_drop_rate) {
       voxelmap_info.num_voxels = h_voxels_failures[0];
-      check_error << cudaMemcpyAsync(voxelmap_info_ptr, &voxelmap_info, sizeof(VoxelMapInfo), cudaMemcpyHostToDevice, stream);
+      CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(voxelmap_info_ptr, &voxelmap_info, sizeof(VoxelMapInfo), cudaMemcpyHostToDevice, stream);
       break;
     }
   }
 
-  check_error << cudaFreeAsync(buckets, stream);
-  check_error << cudaMallocAsync(&buckets, sizeof(VoxelBucket) * voxelmap_info.num_buckets, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(buckets, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&buckets, sizeof(VoxelBucket) * voxelmap_info.num_buckets, stream);
   thrust::transform(
     thrust::cuda::par_nosync.on(stream),
     thrust::device_ptr<thrust::pair<int, int>>(index_buckets),
@@ -316,9 +319,9 @@ void GaussianVoxelMapGPU::create_bucket_table(cudaStream_t stream, const PointCl
     thrust::device_ptr<VoxelBucket>(buckets),
     voxel_coord_select_kernel(coords));
 
-  check_error << cudaFreeAsync(coords, stream);
-  check_error << cudaFreeAsync(voxels_failures, stream);
-  check_error << cudaFreeAsync(index_buckets, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(coords, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(voxels_failures, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(index_buckets, stream);
 }
 
 void GaussianVoxelMapGPU::save_compact(const std::string& path) const {
@@ -490,7 +493,7 @@ std::vector<int> download_voxel_num_points(const GaussianVoxelMapGPU& voxelmap, 
 
 std::vector<Eigen::Vector3f> download_voxel_means(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream) {
   std::vector<Eigen::Vector3f> means(voxelmap.voxelmap_info.num_voxels);
-  check_error << cudaMemcpyAsync(
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(
     means.data(),
     voxelmap.voxel_means,
     sizeof(Eigen::Vector3f) * voxelmap.voxelmap_info.num_voxels,
@@ -501,14 +504,14 @@ std::vector<Eigen::Vector3f> download_voxel_means(const GaussianVoxelMapGPU& vox
 
 std::vector<Eigen::Matrix3f> download_voxel_covs(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream) {
   std::vector<Eigen::Matrix3f> covs(voxelmap.voxelmap_info.num_voxels);
-  check_error
+  CUDACheckError(__FILE__, __LINE__)
     << cudaMemcpyAsync(covs.data(), voxelmap.voxel_covs, sizeof(Eigen::Matrix3f) * voxelmap.voxelmap_info.num_voxels, cudaMemcpyDeviceToHost, stream);
   return covs;
 }
 
 std::vector<float> download_voxel_intensity(const GaussianVoxelMapGPU& voxelmap, CUstream_st* stream) {
   std::vector<float> intensities(voxelmap.voxelmap_info.num_voxels);
-  check_error << cudaMemcpyAsync(
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(
     intensities.data(),
     voxelmap.voxel_intensities,
     sizeof(float) * voxelmap.voxelmap_info.num_voxels,

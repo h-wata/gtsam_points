@@ -12,7 +12,12 @@ namespace gtsam_points {
 
 class CUDACheckError {
 public:
+  CUDACheckError(const char* file = nullptr, int line = -1) : file_(file), line_(line) {}
   void operator<<(cudaError_t error) const;
+
+private:
+  const char* file_;
+  int line_;
 };
 
 extern CUDACheckError check_error;
