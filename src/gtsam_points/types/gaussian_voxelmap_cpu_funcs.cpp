@@ -85,18 +85,26 @@ merge_frames(const std::vector<Eigen::Isometry3d>& poses, const std::vector<Poin
   merged->points = merged->points_storage.data();
   merged->covs = merged->covs_storage.data();
 
+  merged->colors_storage.resize(num_voxels, Eigen::Vector4d::Zero());
+  merged->colors = merged->colors_storage.data();
+
   for (int i = 0; i < frames.size(); i++) {
     const auto& pose = poses[i];
     for (int j = 0; j < frames[i]->size(); j++) {
       const size_t dest = dest_indices[i][j];
       merged->points[dest] += pose * frames[i]->points[j];
       merged->covs[dest] += pose.matrix() * frames[i]->covs[j] * pose.matrix().transpose();
+      if (frames[i]->colors) {
+        merged->colors[dest] += frames[i]->colors[j];
+      }
     }
   }
 
   for (int i = 0; i < merged->size(); i++) {
-    merged->covs[i] /= merged->points[i].w();
-    merged->points[i] /= merged->points[i].w();
+    double weight = merged->points[i].w();
+    merged->covs[i] /= weight;
+    merged->points[i] /= weight;
+    merged->colors[i] /= weight;
   }
 
   return merged;
