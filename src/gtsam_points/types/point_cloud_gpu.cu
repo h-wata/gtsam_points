@@ -46,6 +46,9 @@ PointCloudGPU::Ptr PointCloudGPU::clone(const PointCloud& frame, CUstream_st* st
   if (frame.intensities) {
     new_frame->add_intensities(frame.intensities, frame.size(), stream);
   }
+  if (frame.colors) {
+    new_frame->add_colors(frame.colors, frame.size(), stream);
+  }
 
   for (const auto& aux : frame.aux_attributes) {
     const auto& name = aux.first;
