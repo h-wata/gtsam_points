@@ -125,13 +125,22 @@ public:
   }
 
   template <typename T, int D>
-  void add_colors_gpu(const Eigen::Matrix<T, D, 1> * colors, int num_points, CUstream_st * stream = 0);
+  void add_colors(const Eigen::Matrix<T, D, 1>* colors, int num_points, CUstream_st* stream = 0) {
+    PointCloudCPU::add_colors<T, D>(colors, num_points);
+    add_colors_gpu<T, D>(colors, num_points, stream);
+  }
   template <typename T, int D, typename Alloc>
-  void add_colors_gpu(const std::vector<Eigen::Matrix<T, D, 1>, Alloc> & colors, CUstream_st * stream = 0)
-  {
+  void add_colors(const std::vector<Eigen::Matrix<T, D, 1>, Alloc>& colors, CUstream_st* stream = 0) {
+    add_colors(colors.data(), colors.size(), stream);
+  }
+
+  template <typename T, int D>
+  void add_colors_gpu(const Eigen::Matrix<T, D, 1>* colors, int num_points, CUstream_st* stream = 0);
+  template <typename T, int D, typename Alloc>
+  void add_colors_gpu(const std::vector<Eigen::Matrix<T, D, 1>, Alloc>& colors, CUstream_st* stream = 0) {
     add_colors_gpu(colors.data(), colors.size(), stream);
   }
-  void download_points(CUstream_st * stream = 0);
+  void download_points(CUstream_st* stream = 0);
 };
 
 // Device to host data transfer

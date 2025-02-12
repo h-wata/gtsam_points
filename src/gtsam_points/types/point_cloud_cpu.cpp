@@ -153,6 +153,21 @@ void PointCloudCPU::add_intensities(const T* intensities, int num_points) {
 template void PointCloudCPU::add_intensities(const float* intensities, int num_points);
 template void PointCloudCPU::add_intensities(const double* intensities, int num_points);
 
+// add_colors
+template <typename T, int D>
+void PointCloudCPU::add_colors(const Eigen::Matrix<T, D, 1>* colors, int num_points) {
+  assert(num_points == size());
+  colors_storage.resize(num_points, Eigen::Vector4d::Zero());
+  if (colors) {
+    for (int i = 0; i < num_points; i++) {
+      colors_storage[i] = colors[i].template cast<double>();
+    }
+  }
+  this->colors = colors_storage.data();
+}
+template void PointCloudCPU::add_colors(const Eigen::Matrix<float, 4, 1>* colors, int num_points);
+template void PointCloudCPU::add_colors(const Eigen::Matrix<double, 4, 1>* colors, int num_points);
+
 // PointCloudCPU::load
 PointCloudCPU::Ptr PointCloudCPU::load(const std::string& path) {
   PointCloudCPU::Ptr frame(new PointCloudCPU);

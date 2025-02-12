@@ -82,13 +82,10 @@ public:
   }
 
   template <typename T, int D>
-  void add_colors(const Eigen::Matrix<T, D, 1>* colors, int num_points, CUstream_st* stream = 0) {
-    // CPU側の格納
-    PointCloudCPU::add_colors<T, D>(colors, num_points);
-  }
+  void add_colors(const Eigen::Matrix<T, D, 1>* colors, int num_points);
   template <typename T, int D, typename Alloc>
-  void add_colors(const std::vector<Eigen::Matrix<T, D, 1>, Alloc>& colors, CUstream_st* stream = 0) {
-    add_colors(colors.data(), colors.size(), stream);
+  void add_colors(const std::vector<Eigen::Matrix<T, D, 1>, Alloc>& colors) {
+    add_colors(colors.data(), colors.size());
   }
 
   template <typename T>
