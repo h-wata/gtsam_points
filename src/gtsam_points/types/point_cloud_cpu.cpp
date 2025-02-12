@@ -63,6 +63,9 @@ PointCloudCPU::Ptr PointCloudCPU::clone(const PointCloud& points) {
     new_points->add_intensities(points.intensities, points.size());
   }
 
+  if (points.colors) {
+    new_points->add_colors(points.colors, points.size());
+  }
   for (const auto& attrib : points.aux_attributes) {
     const auto& name = attrib.first;
     const size_t elem_size = attrib.second.first;
@@ -203,6 +206,12 @@ PointCloudCPU::Ptr PointCloudCPU::load(const std::string& path) {
       std::ifstream ifs(path + "/intensities.bin", std::ios::binary);
       ifs.read(reinterpret_cast<char*>(frame->intensities), sizeof(double) * frame->size());
     }
+    if (boost::filesystem::exists(path + "/colors.bin")) {
+      frame->colors_storage.resize(frame->size());
+      frame->colors = frame->colors_storage.data();
+      std::ifstream ifs(path + "/colors.bin", std::ios::binary);
+      ifs.read(reinterpret_cast<char*>(frame->colors), sizeof(Eigen::Vector4d) * frame->size());
+    }
   } else if (boost::filesystem::exists(path + "/points_compact.bin")) {
     std::ifstream ifs(path + "/points_compact.bin", std::ios::binary | std::ios::ate);
     std::streamsize points_bytes = ifs.tellg();
@@ -267,7 +276,14 @@ PointCloudCPU::Ptr PointCloudCPU::load(const std::string& path) {
       ifs.read(reinterpret_cast<char*>(intensities_f.data()), sizeof(Eigen::Vector4f) * frame->size());
       std::copy(intensities_f.begin(), intensities_f.end(), frame->intensities);
     }
-
+    if (boost::filesystem::exists(path + "/colors_compact.bin")) {
+      frame->colors_storage.resize(frame->size());
+      frame->colors = frame->colors_storage.data();
+      std::vector<Eigen::Vector4f> colors_f(frame->size());
+      std::ifstream ifs(path + "/colors_compact.bin", std::ios::binary);
+      ifs.read(reinterpret_cast<char*>(colors_f.data()), sizeof(Eigen::Vector4f) * frame->size());
+      std::transform(colors_f.begin(), colors_f.end(), frame->colors, [](const Eigen::Vector4f& c) { return c.cast<double>(); });
+    }
   } else {
     std::cerr << "error: " << path << " does not constain points(_compact)?.bin" << std::endl;
     return nullptr;
@@ -333,6 +349,12 @@ PointCloudCPU::Ptr sample(const PointCloud::ConstPtr& frame, const std::vector<i
     sampled->intensities_storage.resize(indices.size());
     sampled->intensities = sampled->intensities_storage.data();
     std::transform(indices.begin(), indices.end(), sampled->intensities, [&](const int i) { return frame->intensities[i]; });
+  }
+
+  if (frame->colors) {
+    sampled->colors_storage.resize(indices.size());
+    sampled->colors = sampled->colors_storage.data();
+    std::transform(indices.begin(), indices.end(), sampled->colors, [&](const int i) { return frame->colors[i]; });
   }
 
   for (const auto& attrib : frame->aux_attributes) {
@@ -464,6 +486,9 @@ PointCloudCPU::Ptr voxelgrid_sampling(const PointCloud::ConstPtr& frame, const d
     downsampled->intensities_storage.resize(frame->size());
   }
 
+  if (frame->colors) {
+    downsampled->colors_storage.resize(frame->size());
+  }
   const int block_size = 1024;
   std::atomic_uint64_t num_points = 0;
 
@@ -520,6 +545,13 @@ PointCloudCPU::Ptr voxelgrid_sampling(const PointCloud::ConstPtr& frame, const d
         }
         downsampled->intensities_storage[point_index_begin + i] = intensity_average.average();
       }
+      if (frame->colors) {
+        Averager<Eigen::Vector4d> color_average(Eigen::Vector4d::Zero());
+        for (auto pt = sub_blocks[i]; pt != sub_blocks[i + 1]; pt++) {
+          color_average += frame->colors[pt->second];
+        }
+        downsampled->colors_storage[point_index_begin + i] = color_average.average();
+      }
     }
   };
 
@@ -566,6 +598,10 @@ PointCloudCPU::Ptr voxelgrid_sampling(const PointCloud::ConstPtr& frame, const d
     downsampled->intensities = downsampled->intensities_storage.data();
   }
 
+  if (frame->colors) {
+    downsampled->colors_storage.resize(num_points);
+    downsampled->colors = downsampled->colors_storage.data();
+  }
   if (!frame->aux_attributes.empty()) {
     std::cout << "warning: voxelgrid_sampling does not support aux attributes!!" << std::endl;
   }
@@ -763,6 +799,11 @@ PointCloudCPU::Ptr transform(const PointCloud::ConstPtr& frame, const Eigen::Tra
     }
   }
 
+  if (frame->colors) {
+    for (int i = 0; i < frame->size(); i++) {
+      transformed->colors[i] = frame->colors[i];
+    }
+  }
   return transformed;
 }
 
@@ -816,6 +857,11 @@ void transform_inplace(PointCloud& frame, const Eigen::Transform<double, 3, Eige
   if (frame.covs) {
     for (int i = 0; i < frame.size(); i++) {
       frame.covs[i] = transformation.matrix() * frame.covs[i] * transformation.matrix().transpose();
+    }
+  }
+  if (frame.colors) {
+    for (int i = 0; i < frame.size(); i++) {
+      frame.colors[i] = frame.colors[i];
     }
   }
 }
