@@ -31,6 +31,10 @@ bool PointCloud::has_intensities() const {
   return intensities;
 }
 
+bool PointCloud::has_colors() const {
+  return colors;
+}
+
 bool PointCloud::has_times_gpu() const {
   return times_gpu;
 }
@@ -49,6 +53,10 @@ bool PointCloud::has_covs_gpu() const {
 
 bool PointCloud::has_intensities_gpu() const {
   return intensities_gpu;
+}
+
+bool PointCloud::has_colors_gpu() const {
+  return colors_gpu;
 }
 
 bool PointCloud::check_times() const {
@@ -86,6 +94,13 @@ bool PointCloud::check_intensities() const {
   return intensities;
 }
 
+bool PointCloud::check_colors() const {
+  if (!colors) {
+    std::cerr << "warning: frame doesn't have colors" << std::endl;
+  }
+  return colors;
+}
+
 bool PointCloud::check_times_gpu() const {
   if (!times_gpu) {
     std::cerr << "warning: frame doesn't have times on GPU" << std::endl;
@@ -119,6 +134,13 @@ bool PointCloud::check_intensities_gpu() const {
     std::cerr << "warning: frame doesn't have intensities on GPU" << std::endl;
   }
   return intensities_gpu;
+}
+
+bool PointCloud::check_colors_gpu() const {
+  if (!colors_gpu) {
+    std::cerr << "warning: frame doesn't have colors on GPU" << std::endl;
+  }
+  return colors_gpu;
 }
 
 namespace {

@@ -28,11 +28,15 @@ public:
     normals(nullptr),
     covs(nullptr),
     intensities(nullptr),
+    colors(nullptr),
     times_gpu(nullptr),
     points_gpu(nullptr),
     normals_gpu(nullptr),
     covs_gpu(nullptr),
-    intensities_gpu(nullptr) {}
+    intensities_gpu(nullptr),
+    colors_gpu(nullptr)
+  {
+  }
   virtual ~PointCloud() {}
 
   // Forbid copy
@@ -47,17 +51,19 @@ public:
   bool has_normals() const;      ///< Check if the point cloud has point normals
   bool has_covs() const;         ///< Check if the point cloud has point covariances
   bool has_intensities() const;  ///< Check if the point cloud has point intensities
-
+  bool has_colors() const;  ///< Check if the point cloud has point colors
   bool check_times() const;        ///< Warn if the point cloud doesn't have times
   bool check_points() const;       ///< Warn if the point cloud doesn't have points
   bool check_normals() const;      ///< Warn if the point cloud doesn't have normals
   bool check_covs() const;         ///< Warn if the point cloud doesn't have covs
   bool check_intensities() const;  ///< Warn if the point cloud doesn't have intensities
+  bool check_colors() const;       ///< Warn if the point cloud doesn't have colors
 
   bool has_times_gpu() const;        ///< Check if the point cloud has per-point timestamps on GPU
   bool has_points_gpu() const;       ///< Check if the point cloud has points on GPU
   bool has_normals_gpu() const;      ///< Check if the point cloud has point normals on GPU
   bool has_covs_gpu() const;         ///< Check if the point cloud has point covariances on GPU
+  bool has_colors_gpu() const;       ///< Check if the point cloud has point colors
   bool has_intensities_gpu() const;  ///< Check if the point cloud has point intensities on GPU
 
   bool check_times_gpu() const;        ///< Warn if the point cloud doesn't have times on GPU
@@ -65,6 +71,7 @@ public:
   bool check_normals_gpu() const;      ///< Warn if the point cloud doesn't have normals on GPU
   bool check_covs_gpu() const;         ///< Warn if the point cloud doesn't have covs on GPU
   bool check_intensities_gpu() const;  ///< Warn if the point cloud doesn't have intensities on GPU
+  bool check_colors_gpu() const;       ///< Warn if the point cloud doesn't have colors on GPU
 
   /**
    * @brief Get the pointer to an aux attribute
@@ -102,20 +109,21 @@ public:
 public:
   size_t num_points;  ///< Number of points
 
-  double* times;             ///< Per-point timestamp w.r.t. the first point (should be sorted)
-  Eigen::Vector4d* points;   ///< Point coordinates (x, y, z, 1)
-  Eigen::Vector4d* normals;  ///< Point normals (nx, ny, nz, 0)
-  Eigen::Matrix4d* covs;     ///< Point covariances cov(3, 3) = 0
-  double* intensities;       ///< Point intensities
-
+  double * times;             ///< Per-point timestamp w.r.t. the first point (should be sorted)
+  Eigen::Vector4d * points;   ///< Point coordinates (x, y, z, 1)
+  Eigen::Vector4d * normals;  ///< Point normals (nx, ny, nz, 0)
+  Eigen::Matrix4d * covs;     ///< Point covariances cov(3, 3) = 0
+  double * intensities;       ///< Point intensities
+  Eigen::Vector4d * colors;
   /// Aux attributes <attribute_name, pair<element_size, data_ptr>>
-  std::unordered_map<std::string, std::pair<size_t, void*>> aux_attributes;
+  std::unordered_map<std::string, std::pair<size_t, void *>> aux_attributes;
 
-  float* times_gpu;              ///< Per-point timestamp on GPU
-  Eigen::Vector3f* points_gpu;   ///< Point coordinates on GPU
-  Eigen::Vector3f* normals_gpu;  ///< Point normals on GPU
-  Eigen::Matrix3f* covs_gpu;     ///< Point covariances on GPU
-  float* intensities_gpu;        ///< Point intensities on GPU
+  float * times_gpu;              ///< Per-point timestamp on GPU
+  Eigen::Vector3f * points_gpu;   ///< Point coordinates on GPU
+  Eigen::Vector3f * normals_gpu;  ///< Point normals on GPU
+  Eigen::Matrix3f * covs_gpu;     ///< Point covariances on GPU
+  float * intensities_gpu;        ///< Point intensities on GPU
+  Eigen::Vector4f * colors_gpu;   ///< Point colors on GPU
 };
 }  // namespace gtsam_points
 
@@ -134,12 +142,14 @@ struct traits<PointCloud> {
   static bool has_normals(const PointCloud& frame) { return frame.has_normals(); }
   static bool has_covs(const PointCloud& frame) { return frame.has_covs(); }
   static bool has_intensities(const PointCloud& frame) { return frame.has_intensities(); }
+  static bool has_colors(const PointCloud& frame) { return frame.has_colors(); }
 
   static double time(const PointCloud& frame, size_t i) { return frame.times[i]; }
   static const Eigen::Vector4d& point(const PointCloud& frame, size_t i) { return frame.points[i]; }
   static const Eigen::Vector4d& normal(const PointCloud& frame, size_t i) { return frame.normals[i]; }
   static const Eigen::Matrix4d& cov(const PointCloud& frame, size_t i) { return frame.covs[i]; }
   static double intensity(const PointCloud& frame, size_t i) { return frame.intensities[i]; }
+  static const Eigen::Vector4d& color(const PointCloud& frame, size_t i) { return frame.colors[i]; }
 
   static const Eigen::Vector4d* points_ptr(const PointCloud& frame) { return frame.points; }
 };
