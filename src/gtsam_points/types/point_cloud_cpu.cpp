@@ -53,6 +53,9 @@ PointCloudCPU::Ptr PointCloudCPU::clone(const PointCloud& points) {
     new_points->add_intensities(points.intensities, points.size());
   }
 
+  if (points.colors) {
+    new_points->add_colors(points.colors, points.size());
+  }
   for (const auto& attrib : points.aux_attributes) {
     const auto& name = attrib.first;
     const size_t elem_size = attrib.second.first;
@@ -193,6 +196,12 @@ PointCloudCPU::Ptr PointCloudCPU::load(const std::string& path) {
       std::ifstream ifs(path + "/intensities.bin", std::ios::binary);
       ifs.read(reinterpret_cast<char*>(frame->intensities), sizeof(double) * frame->size());
     }
+    if (boost::filesystem::exists(path + "/colors.bin")) {
+      frame->colors_storage.resize(frame->size());
+      frame->colors = frame->colors_storage.data();
+      std::ifstream ifs(path + "/colors.bin", std::ios::binary);
+      ifs.read(reinterpret_cast<char*>(frame->colors), sizeof(Eigen::Vector4d) * frame->size());
+    }
   } else if (boost::filesystem::exists(path + "/points_compact.bin")) {
     std::ifstream ifs(path + "/points_compact.bin", std::ios::binary | std::ios::ate);
     std::streamsize points_bytes = ifs.tellg();
@@ -257,7 +266,14 @@ PointCloudCPU::Ptr PointCloudCPU::load(const std::string& path) {
       ifs.read(reinterpret_cast<char*>(intensities_f.data()), sizeof(float) * frame->size());
       std::copy(intensities_f.begin(), intensities_f.end(), frame->intensities);
     }
-
+    if (boost::filesystem::exists(path + "/colors_compact.bin")) {
+      frame->colors_storage.resize(frame->size());
+      frame->colors = frame->colors_storage.data();
+      std::vector<Eigen::Vector4f> colors_f(frame->size());
+      std::ifstream ifs(path + "/colors_compact.bin", std::ios::binary);
+      ifs.read(reinterpret_cast<char*>(colors_f.data()), sizeof(Eigen::Vector4f) * frame->size());
+      std::transform(colors_f.begin(), colors_f.end(), frame->colors, [](const Eigen::Vector4f& c) { return c.cast<double>(); });
+    }
   } else {
     std::cerr << "error: " << path << " does not constain points(_compact)?.bin" << std::endl;
     return nullptr;
