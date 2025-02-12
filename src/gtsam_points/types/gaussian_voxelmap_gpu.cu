@@ -94,13 +94,15 @@ struct accumulate_points_kernel {
     int* num_points,
     Eigen::Vector3f* voxel_means,
     Eigen::Matrix3f* voxel_covs,
-    float* voxel_intensities = nullptr)
+    float* voxel_intensities = nullptr,
+    Eigen::Vector4f* voxel_colors = nullptr)
   : voxelmap_info_ptr(voxelmap_info_ptr),
     buckets_ptr(buckets),
     num_points_ptr(num_points),
     voxel_means_ptr(voxel_means),
     voxel_covs_ptr(voxel_covs),
-    voxel_intensities_ptr(voxel_intensities) {}
+    voxel_intensities_ptr(voxel_intensities),
+    voxel_colors_ptr(voxel_colors) {}
 
   template <typename TupleType>
   __device__ void operator()(const TupleType& input) const {
