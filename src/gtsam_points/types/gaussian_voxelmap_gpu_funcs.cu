@@ -56,15 +56,17 @@ PointCloud::Ptr merge_frames_gpu(
   }
 
   Eigen::Isometry3f* d_poses;
-  check_error << cudaMallocAsync(&d_poses, sizeof(Eigen::Isometry3f) * poses.size(), stream);
-  check_error << cudaMemcpyAsync(d_poses, h_poses.data(), sizeof(Eigen::Isometry3f) * poses.size(), cudaMemcpyHostToDevice, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&d_poses, sizeof(Eigen::Isometry3f) * poses.size(), stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(d_poses, h_poses.data(), sizeof(Eigen::Isometry3f) * poses.size(), cudaMemcpyHostToDevice, stream);
 
   Eigen::Vector3f* all_points;
   Eigen::Matrix3f* all_covs;
   float* all_intensities;
-  check_error << cudaMallocAsync(&all_points, sizeof(Eigen::Vector3f) * num_all_points, stream);
-  check_error << cudaMallocAsync(&all_covs, sizeof(Eigen::Matrix3f) * num_all_points, stream);
-  check_error << cudaMallocAsync(&all_intensities, sizeof(float) * num_all_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_points, sizeof(Eigen::Vector3f) * num_all_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_covs, sizeof(Eigen::Matrix3f) * num_all_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_intensities, sizeof(float) * num_all_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&all_colors, sizeof(Eigen::Vector4f) * num_all_points, stream);
 
   const thrust::device_ptr<Eigen::Vector3f> all_points_ptr(all_points);
   const thrust::device_ptr<Eigen::Matrix3f> all_covs_ptr(all_covs);
@@ -88,7 +90,7 @@ PointCloud::Ptr merge_frames_gpu(
     begin += frame->size();
   }
 
-  check_error << cudaStreamSynchronize(stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 
   PointCloud all_frames;
   all_frames.num_points = num_all_points;
@@ -108,16 +110,21 @@ PointCloud::Ptr merge_frames_gpu(
   std::vector<Eigen::Matrix3f> covs(num_voxels);
   std::vector<float> intensities(num_voxels);
 
-  check_error << cudaMemcpyAsync(means.data(), voxel_means, sizeof(Eigen::Vector3f) * num_voxels, cudaMemcpyDeviceToHost, stream);
-  check_error << cudaMemcpyAsync(covs.data(), voxel_covs, sizeof(Eigen::Matrix3f) * num_voxels, cudaMemcpyDeviceToHost, stream);
-  check_error << cudaMemcpyAsync(intensities.data(), voxel_intensities, sizeof(float) * num_voxels, cudaMemcpyDeviceToHost, stream);
-  check_error << cudaStreamSynchronize(stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(means.data(), voxel_means, sizeof(Eigen::Vector3f) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(covs.data(), voxel_covs, sizeof(Eigen::Matrix3f) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(intensities.data(), voxel_intensities, sizeof(float) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(colors.data(), voxel_colors, sizeof(Eigen::Vector4f) * num_voxels, cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 
-  check_error << cudaFreeAsync(d_poses, stream);
-  check_error << cudaFreeAsync(all_points, stream);
-  check_error << cudaFreeAsync(all_covs, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(d_poses, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_covs, stream);
   if (all_intensities != nullptr) {
-    check_error << cudaFreeAsync(all_intensities, stream);
+    CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(all_intensities, stream);
   }
 
   auto merged = std::make_shared<PointCloudGPU>();
@@ -180,7 +187,7 @@ overlap_gpu(const GaussianVoxelMap::ConstPtr& target_, const PointCloud::ConstPt
   }
 
   bool* overlap;
-  check_error << cudaMallocAsync(&overlap, sizeof(bool) * source->size(), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&overlap, sizeof(bool) * source->size(), stream);
   thrust::device_ptr<bool> overlap_ptr(overlap);
 
   thrust::transform(
@@ -191,20 +198,20 @@ overlap_gpu(const GaussianVoxelMap::ConstPtr& target_, const PointCloud::ConstPt
     overlap_count_kernel(*target, thrust::device_ptr<const Eigen::Isometry3f>(delta_gpu)));
 
   int* num_inliers;
-  check_error << cudaMallocAsync(&num_inliers, sizeof(int), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&num_inliers, sizeof(int), stream);
 
   char* temp_storage = nullptr;
   size_t temp_storage_bytes = 0;
   cub::DeviceReduce::Reduce(temp_storage, temp_storage_bytes, overlap, num_inliers, source->size(), thrust::plus<int>(), 0, stream);
-  check_error << cudaMallocAsync(&temp_storage, temp_storage_bytes, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&temp_storage, temp_storage_bytes, stream);
   cub::DeviceReduce::Reduce(temp_storage, temp_storage_bytes, overlap, num_inliers, source->size(), thrust::plus<int>(), 0, stream);
 
   int num_inliers_cpu = 0;
-  check_error << cudaMemcpyAsync(&num_inliers_cpu, num_inliers, sizeof(int), cudaMemcpyDeviceToHost, stream);
-  check_error << cudaFreeAsync(overlap, stream);
-  check_error << cudaFreeAsync(temp_storage, stream);
-  check_error << cudaFreeAsync(num_inliers, stream);
-  check_error << cudaStreamSynchronize(stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(&num_inliers_cpu, num_inliers, sizeof(int), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(overlap, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(temp_storage, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(num_inliers, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaStreamSynchronize(stream);
 
   return static_cast<double>(num_inliers_cpu) / source->size();
 }
@@ -224,11 +231,11 @@ overlap_gpu(const GaussianVoxelMap::ConstPtr& target_, const PointCloud::ConstPt
 
   Eigen::Isometry3f h_delta = delta.cast<float>();
   Eigen::Isometry3f* d_delta;
-  check_error << cudaMallocAsync(&d_delta, sizeof(Eigen::Isometry3f), stream);
-  check_error << cudaMemcpyAsync(d_delta, h_delta.data(), sizeof(Eigen::Isometry3f), cudaMemcpyHostToDevice, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&d_delta, sizeof(Eigen::Isometry3f), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(d_delta, h_delta.data(), sizeof(Eigen::Isometry3f), cudaMemcpyHostToDevice, stream);
 
   double overlap = overlap_gpu(target, source, d_delta, stream);
-  check_error << cudaFreeAsync(d_delta, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(d_delta, stream);
 
   return overlap;
 }
@@ -255,13 +262,14 @@ double overlap_gpu(
   std::transform(deltas_.begin(), deltas_.end(), h_deltas.begin(), [](const Eigen::Isometry3d& delta) { return delta.cast<float>(); });
 
   Eigen::Isometry3f* deltas;
-  check_error << cudaMallocAsync(&deltas, sizeof(Eigen::Isometry3f) * h_deltas.size(), stream);
-  check_error << cudaMemcpyAsync(deltas, h_deltas.data(), sizeof(Eigen::Isometry3f) * h_deltas.size(), cudaMemcpyHostToDevice, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&deltas, sizeof(Eigen::Isometry3f) * h_deltas.size(), stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(deltas, h_deltas.data(), sizeof(Eigen::Isometry3f) * h_deltas.size(), cudaMemcpyHostToDevice, stream);
   thrust::device_ptr<Eigen::Isometry3f> deltas_ptr(deltas);
 
   bool* overlap;
-  check_error << cudaMallocAsync(&overlap, sizeof(bool) * source->size(), stream);
-  check_error << cudaMemsetAsync(overlap, 0, sizeof(bool) * source->size(), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&overlap, sizeof(bool) * source->size(), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemsetAsync(overlap, 0, sizeof(bool) * source->size(), stream);
   thrust::device_ptr<bool> overlap_ptr(overlap);
 
   for (int i = 0; i < targets.size(); i++) {
@@ -278,21 +286,21 @@ double overlap_gpu(
   }
 
   int* num_inliers;
-  check_error << cudaMallocAsync(&num_inliers, sizeof(int), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&num_inliers, sizeof(int), stream);
 
   void* temp_storage = nullptr;
   size_t temp_storage_bytes = 0;
 
   cub::DeviceReduce::Reduce(temp_storage, temp_storage_bytes, overlap, num_inliers, source->size(), thrust::plus<int>(), 0, stream);
-  check_error << cudaMallocAsync(&temp_storage, temp_storage_bytes, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&temp_storage, temp_storage_bytes, stream);
   cub::DeviceReduce::Reduce(temp_storage, temp_storage_bytes, overlap, num_inliers, source->size(), thrust::plus<int>(), 0, stream);
 
   int num_inliers_cpu;
-  check_error << cudaMemcpyAsync(&num_inliers_cpu, num_inliers, sizeof(int), cudaMemcpyDeviceToHost, stream);
-  check_error << cudaFreeAsync(deltas, stream);
-  check_error << cudaFreeAsync(overlap, stream);
-  check_error << cudaFreeAsync(temp_storage, stream);
-  check_error << cudaFreeAsync(num_inliers, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMemcpyAsync(&num_inliers_cpu, num_inliers, sizeof(int), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(deltas, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(overlap, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(temp_storage, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(num_inliers, stream);
 
   return static_cast<double>(num_inliers_cpu) / source->size();
 }
@@ -329,14 +337,15 @@ std::vector<double> overlap_gpu(
   });
 
   Eigen::Isometry3f* deltas;
-  check_error << cudaMallocAsync(&deltas, sizeof(Eigen::Isometry3f) * Ts_target_source_.size(), stream);
-  check_error << cudaMemcpyAsync(deltas, h_deltas.data(), sizeof(Eigen::Isometry3f) * Ts_target_source_.size(), cudaMemcpyHostToDevice, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&deltas, sizeof(Eigen::Isometry3f) * Ts_target_source_.size(), stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(deltas, h_deltas.data(), sizeof(Eigen::Isometry3f) * Ts_target_source_.size(), cudaMemcpyHostToDevice, stream);
 
   bool* overlap;
-  check_error << cudaMallocAsync(&overlap, sizeof(bool) * max_num_points, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&overlap, sizeof(bool) * max_num_points, stream);
 
   int* num_inliers;
-  check_error << cudaMallocAsync(&num_inliers, sizeof(float) * sources.size(), stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&num_inliers, sizeof(float) * sources.size(), stream);
 
   char* temp_storage = nullptr;
   size_t temp_storage_bytes = 0;
@@ -353,23 +362,24 @@ std::vector<double> overlap_gpu(
 
     if (i == 0) {
       cub::DeviceReduce::Reduce(temp_storage, temp_storage_bytes, overlap, num_inliers + i, source->size(), thrust::plus<int>(), 0, stream);
-      check_error << cudaMallocAsync(&temp_storage, temp_storage_bytes, stream);
+      CUDACheckError(__FILE__, __LINE__) << cudaMallocAsync(&temp_storage, temp_storage_bytes, stream);
     }
     cub::DeviceReduce::Reduce(temp_storage, temp_storage_bytes, overlap, num_inliers + i, source->size(), thrust::plus<int>(), 0, stream);
   }
 
   std::vector<int> h_num_inliers(sources.size());
-  check_error << cudaMemcpyAsync(h_num_inliers.data(), num_inliers, sizeof(int) * sources.size(), cudaMemcpyDeviceToHost, stream);
+  CUDACheckError(__FILE__, __LINE__)
+    << cudaMemcpyAsync(h_num_inliers.data(), num_inliers, sizeof(int) * sources.size(), cudaMemcpyDeviceToHost, stream);
 
   std::vector<double> overlaps(sources.size());
   for (int i = 0; i < sources.size(); i++) {
     overlaps[i] = static_cast<double>(h_num_inliers[i]) / sources[i]->size();
   }
 
-  check_error << cudaFreeAsync(deltas, stream);
-  check_error << cudaFreeAsync(overlap, stream);
-  check_error << cudaFreeAsync(temp_storage, stream);
-  check_error << cudaFreeAsync(num_inliers, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(deltas, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(overlap, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(temp_storage, stream);
+  CUDACheckError(__FILE__, __LINE__) << cudaFreeAsync(num_inliers, stream);
 
   return overlaps;
 }
