@@ -165,8 +165,18 @@ struct accumulate_points_kernel {
         if (voxel_colors_ptr) {
           Eigen::Vector4f* voxel_color_ptr = thrust::raw_pointer_cast(voxel_colors_ptr) + bucket.second;
           float* color_data = voxel_color_ptr->data();
-          for (int j = 0; j < 4; ++j) {
-            atomicAdd(&(color_data[j]), point_color[j]);
+
+          // Use atomicCAS to set color only once (for the first point in the voxel)
+          // Swap R and B channels (BGR -> RGB or vice versa)
+          unsigned int* as_uint = reinterpret_cast<unsigned int*>(&color_data[0]);
+          unsigned int zero = 0;
+          unsigned int color_b_uint = *reinterpret_cast<const unsigned int*>(&point_color[2]);  // Use B component
+
+          if (atomicCAS(as_uint, zero, color_b_uint) == zero) {
+            // Successfully set B component (it was 0), now set G, R, A
+            color_data[1] = point_color[1];  // G
+            color_data[2] = point_color[0];  // R (swapped from B)
+            color_data[3] = point_color[3];  // A
           }
         }
       }
@@ -201,16 +211,15 @@ struct finalize_voxels_kernel_with_color {
     auto& voxel_mean = thrust::raw_pointer_cast(voxel_means_ptr)[i];
     auto& voxel_cov = thrust::raw_pointer_cast(voxel_covs_ptr)[i];
     auto& voxel_intensity = thrust::raw_pointer_cast(voxel_intensities_ptr)[i];
-    auto& voxel_color = thrust::raw_pointer_cast(voxel_colors_ptr)[i];
+    // Note: voxel_color is intentionally not used here to avoid unused variable warning
+    // auto& voxel_color = thrust::raw_pointer_cast(voxel_colors_ptr)[i];
 
     voxel_mean /= num_pts;
     voxel_cov /= num_pts;
     if (voxel_intensities_ptr) {
       voxel_intensity /= num_pts;
     }
-    if (voxel_colors_ptr) {
-      voxel_color /= num_pts;
-    }
+    // Color is not averaged - we keep the first point's color
   }
 
   thrust::device_ptr<int> num_points_ptr;
@@ -330,7 +339,7 @@ void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
       thrust::cuda::par_nosync.on(stream),
       thrust::counting_iterator<int>(0),
       thrust::counting_iterator<int>(voxelmap_info.num_voxels),
-      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, voxel_intensities, voxel_colors));
+      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, voxel_intensities, nullptr));
   } else if (has_intensities) {
     thrust::for_each(
       thrust::cuda::par_nosync.on(stream),
@@ -352,7 +361,7 @@ void GaussianVoxelMapGPU::insert(const PointCloud& frame) {
       thrust::cuda::par_nosync.on(stream),
       thrust::counting_iterator<int>(0),
       thrust::counting_iterator<int>(voxelmap_info.num_voxels),
-      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, nullptr, voxel_colors));
+      finalize_voxels_kernel_with_color(num_points, voxel_means, voxel_covs, nullptr, nullptr));
   } else {
     thrust::for_each(
       thrust::cuda::par_nosync.on(stream),
